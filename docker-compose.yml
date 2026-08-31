@@ -1,0 +1,17 @@
+services:
+  calcettobot:
+    build: .
+    image: calcettobot:latest
+    container_name: calcettobot
+    restart: unless-stopped
+    env_file:
+      - .env
+    environment:
+      # Sovrascrive DB_PATH indipendentemente da cosa c'e' nel .env:
+      DB_PATH: /data/calcetto.sqlite3
+    volumes:
+      # Persiste il database SQLite tra i riavvii / le ricreazioni del container.
+      - calcetto-data:/data
+
+volumes:
+  calcetto-data:

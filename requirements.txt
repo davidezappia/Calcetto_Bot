@@ -1,0 +1,6 @@
+# python-telegram-bot v21+ (API async + JobQueue). Testato con 22.8.
+python-telegram-bot[job-queue]>=21.6,<23
+SQLAlchemy>=2.0.30,<2.1
+python-dotenv>=1.0.1
+# zoneinfo (stdlib) legge il DB IANA da qui su immagini slim/alpine:
+tzdata>=2024.1
