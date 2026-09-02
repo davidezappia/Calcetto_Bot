@@ -13,6 +13,7 @@ from __future__ import annotations
 
 import logging
 
+from sqlalchemy import select
 from telegram import InlineKeyboardButton, InlineKeyboardMarkup, Update
 from telegram.ext import (
     CallbackQueryHandler,
@@ -25,7 +26,8 @@ from telegram.ext import (
 
 from ..config import DEFAULT_MATCH_DURATION_MIN, DEFAULT_REQUIRED_PLAYERS
 from ..db import session_scope
-from ..jobs import schedule_group_reminder
+from ..jobs import cancel_match_jobs, schedule_group_reminder
+from ..models import Match, MatchState
 from ..utils import GIORNI_IT, esc, parse_day, parse_hhmm
 from .common import (
     get_or_create_group,
@@ -246,8 +248,23 @@ async def on_confirm(update: Update, context: ContextTypes.DEFAULT_TYPE):
         return FREQ
 
     setup = context.user_data.get("setup", {})
+    stale_match_ids: list[int] = []
     with session_scope() as s:
         group = get_or_create_group(s, update.effective_chat.id)
+
+        # Riconfigurazione: la partita aperta si riferisce ancora ai vecchi
+        # slot e ai vecchi iscritti. La eliminiamo (i partecipanti spariscono
+        # via cascade) cosi' la prossima /gioco ne apre una pulita sul nuovo
+        # calendario.
+        for m in s.execute(
+            select(Match).where(
+                Match.group_id == group.id,
+                Match.state.in_([MatchState.OPEN, MatchState.COMPLETE]),
+            )
+        ).scalars():
+            stale_match_ids.append(m.id)
+            s.delete(m)
+
         group.schedule_slots = setup["slots"]
         group.required_players = setup["required"]
         group.match_duration_min = setup["duration"]
@@ -259,6 +276,8 @@ async def on_confirm(update: Update, context: ContextTypes.DEFAULT_TYPE):
         group.configured = True
         group_id, chat_id = group.id, group.telegram_chat_id
 
+    for mid in stale_match_ids:
+        cancel_match_jobs(context.job_queue, mid)
     schedule_group_reminder(context.job_queue, group_id, chat_id)
     context.user_data.pop("setup", None)
     log.info("gruppo %s configurato", group_id)
